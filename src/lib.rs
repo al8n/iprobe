@@ -74,7 +74,6 @@ pub fn probe() -> Probe {
   *INIT.get_or_init(probe_in)
 }
 
-// #[cfg(unix)]
 fn probe_in() -> Probe {
   use std::net::{Ipv6Addr, SocketAddrV6};
 
@@ -118,7 +117,7 @@ fn probe_in() -> Probe {
       };
 
       // Attempt to bind
-      let bind_result = bind(sock, &addr.into());
+      let bind_result = bind(sock, &addr);
 
       if bind_result.is_ok() {
         if is_ipv6 {

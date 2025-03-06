@@ -1,6 +1,6 @@
 [package]
 name = "iprobe"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 repository = "https://github.com/al8n/iprobe"
 homepage = "https://github.com/al8n/iprobe"
@@ -15,7 +15,7 @@ keywords = ["netprobe", "ipprobe"]
 default = []
 
 [dependencies]
-rustix = { version = "0.38", features = ["net"] }
+rustix = { version = "1", features = ["net"] }
 
 [package.metadata.docs.rs]
 all-features = true
