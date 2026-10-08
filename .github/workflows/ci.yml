@@ -4,53 +4,57 @@ on:
   push:
     branches:
       - main
-    paths-ignore:
-      - 'README'
-      - 'COPYRIGHT'
-      - 'LICENSE-*'
-      - '**.md'
-      - '**.txt'
   pull_request:
-    paths-ignore:
-      - 'README'
-      - 'COPYRIGHT'
-      - 'LICENSE-*'
-      - '**.md'
-      - '**.txt'
   workflow_dispatch:
-  schedule: [cron: "0 1 */7 * *"]
+  schedule:
+    - cron: "0 1 */7 * *"
+
+permissions:
+  contents: read
 
 env:
   CARGO_TERM_COLOR: always
   RUSTFLAGS: -Dwarnings
   RUST_BACKTRACE: 1
-  nightly: nightly
-  stable: stable
 
 jobs:
-  # Check formatting
   rustfmt:
     name: rustfmt
-    strategy:
-      matrix:
-        os:
-          - ubuntu-latest
-          - macos-latest
-          - windows-latest
-    runs-on: ${{ matrix.os }}
+    runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v7
-    - name: Install Rust
-      # --no-self-update is necessary because the windows environment cannot self-update rustup.exe.
-      run: rustup update stable --no-self-update && rustup default stable
-    - name: Check formatting
-      run: cargo fmt --all -- --check
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Install stable Rust
+        run: rustup update stable --no-self-update && rustup default stable
+      - name: Check formatting
+        run: cargo +stable fmt --all -- --check
 
+  stable:
+    name: stable (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - macos-latest
+          - windows-latest
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Install stable Rust
+        run: rustup update stable --no-self-update && rustup default stable
+      - name: Check
+        run: cargo +stable check --all-features --all-targets
+      - name: Clippy
+        run: cargo +stable clippy --all-targets --all-features -- -D warnings
+      - name: Test all targets
+        run: cargo +stable test --all-features --all-targets
+      - name: Test doctests
+        run: cargo +stable test --all-features --doc
 
-  # Apply clippy lints
-  clippy:
-    name: clippy
+  msrv:
+    name: MSRV 1.71.0 (${{ matrix.os }})
     strategy:
+      fail-fast: false
       matrix:
         os:
           - ubuntu-latest
@@ -58,116 +62,50 @@ jobs:
           - windows-latest
     runs-on: ${{ matrix.os }}
     steps:
-    - uses: actions/checkout@v7
-    - name: Install Rust
-      # --no-self-update is necessary because the windows environment cannot self-update rustup.exe.
-      run: rustup update stable --no-self-update && rustup default stable
-    - name: Apply clippy lints
-      run: cargo clippy --all
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Install Rust 1.71.0
+        run: rustup toolchain install 1.71.0 --profile minimal
+      - name: Check
+        run: cargo +1.71.0 check --all-features --all-targets
+      - name: Test all targets
+        run: cargo +1.71.0 test --all-features --all-targets
+      - name: Test doctests
+        run: cargo +1.71.0 test --all-features --doc
 
-  build:
-    name: build
-    strategy:
-      matrix:
-        os:
-          - ubuntu-latest
-          - macos-latest
-          - windows-latest
-    runs-on: ${{ matrix.os }}
+  docs-package-semver:
+    name: docs, package, and semver
+    runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v7
-    - name: Cache cargo build and registry
-      uses: actions/cache@v6
-      with:
-        path: |
-          ~/.cargo/registry
-          ~/.cargo/git
-          target
-        key: ${{ runner.os }}-build-${{ hashFiles('**/Cargo.lock') }}
-        restore-keys: |
-          ${{ runner.os }}-build-
-    - name: Install Rust
-      # --no-self-update is necessary because the windows environment cannot self-update rustup.exe.
-      run: rustup update stable --no-self-update && rustup default stable
-    - name: Cache ~/.cargo
-      uses: actions/cache@v6
-      with:
-        path: ~/.cargo
-        key: ${{ runner.os }}-coverage-dotcargo
-    - name: Run build
-      run: cargo build
-  
-  test:
-    name: test
-    strategy:
-      matrix:
-        os:
-          - ubuntu-latest
-          - macos-latest
-          - windows-latest
-    runs-on: ${{ matrix.os }}
-    steps:
-    - uses: actions/checkout@v7
-    - name: Cache cargo build and registry
-      uses: actions/cache@v6
-      with:
-        path: |
-          ~/.cargo/registry
-          ~/.cargo/git
-          target
-        key: ${{ runner.os }}-test-${{ hashFiles('**/Cargo.lock') }}
-        restore-keys: |
-          ${{ runner.os }}-test-
-    - name: Install Rust
-      # --no-self-update is necessary because the windows environment cannot self-update rustup.exe.
-      run: rustup update stable --no-self-update && rustup default stable
-    - name: Cache ~/.cargo
-      uses: actions/cache@v6
-      with:
-        path: ~/.cargo
-        key: ${{ runner.os }}-coverage-dotcargo
-    - name: Run test
-      run: cargo test
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Install stable Rust
+        run: rustup update stable --no-self-update && rustup default stable
+      - name: Check rustdoc warnings
+        run: RUSTDOCFLAGS=-Dwarnings cargo +stable doc --all-features --no-deps
+      - name: Install cargo-semver-checks
+        run: cargo +stable install cargo-semver-checks --version 0.50.0 --locked
+      - name: Check semver compatibility
+        # The 0.1.1 registry package cannot build with rustix 1.1.5's current regression.
+        run: cargo +stable semver-checks check-release --baseline-version 0.1.0 --release-type patch --all-features
+      - name: Check package
+        run: cargo +stable package --all-features
+      - name: Check publish dry run
+        run: cargo +stable publish --dry-run --all-features
 
   coverage:
     name: coverage
     runs-on: ubuntu-latest
     needs:
       - rustfmt
-      - clippy
-      - build
-      - test
+      - stable
+      - msrv
+      - docs-package-semver
     steps:
-      - uses: actions/checkout@v7
-      - name: Install latest nightly
-        uses: actions-rs/toolchain@v1
-        with:
-          toolchain: nightly
-          override: true
-      - uses: actions-rs/install@v0.1
-        with:
-          crate: cargo-tarpaulin
-          version: latest
-      - name: Cache ~/.cargo
-        uses: actions/cache@v6
-        with:
-          path: ~/.cargo
-          key: ${{ runner.os }}-coverage-dotcargo
-      - name: Cache cargo build
-        uses: actions/cache@v6
-        with:
-          path: target
-          key: ${{ runner.os }}-coverage-cargo-build-target
-      - name: Run tarpaulin
-        uses: actions-rs/cargo@v1
-        env:
-          RUSTFLAGS: "--cfg all_tests"
-        with:
-          command: tarpaulin
-          args: --all-features --run-types tests --run-types doctests --workspace --out xml
-      - name: Upload to codecov.io
-        uses: codecov/codecov-action@v7
-        with:
-          token: ${{ secrets.CODECOV_TOKEN }}
-          slug: ${{ github.repository }}
-          fail_ci_if_error: true
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Install stable Rust and llvm-tools
+        run: |
+          rustup update stable --no-self-update && rustup default stable
+          rustup component add llvm-tools-preview --toolchain stable
+      - name: Install cargo-llvm-cov
+        run: cargo +stable install cargo-llvm-cov --version 0.8.7 --locked
+      - name: Check coverage threshold
+        run: cargo +stable llvm-cov --all-features --workspace --summary-only --fail-under-lines 90
