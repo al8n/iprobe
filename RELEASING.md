@@ -1,6 +1,6 @@
 # Releasing iprobe
 
-The current release candidate is `0.1.2`. A version in `Cargo.toml`, release
+The current release candidate is `1.0.0`. A version in `Cargo.toml`, release
 notes, or a successful dry run is not a published release. Publication is
 complete only after crates.io reports the version and its checksum matches the
 archive verified by the release workflow.
@@ -15,7 +15,7 @@ archive verified by the release workflow.
 
    ```sh
    python3 -B -m unittest scripts/test_check_release_version.py
-   python3 -B scripts/check_release_version.py --tag v0.1.2
+   python3 -B scripts/check_release_version.py --tag v1.0.0
    ```
 
    The checker requires Python 3.11 or newer. It intentionally accepts only the
@@ -37,13 +37,13 @@ archive verified by the release workflow.
    RUSTFLAGS=-Dwarnings cargo +1.71.0 check --locked --all-features --all-targets
    RUSTFLAGS=-Dwarnings cargo +1.71.0 test --locked --all-features --all-targets
    RUSTFLAGS=-Dwarnings cargo +1.71.0 test --locked --all-features --doc
-   cargo +stable semver-checks check-release --baseline-version 0.1.0 --release-type patch --all-features
+   cargo +stable semver-checks check-release --baseline-version 0.1.2 --release-type patch --all-features
    ```
 
-   The semver check uses `0.1.0` as its registry baseline because the published
-   `0.1.1` dependency resolution currently encounters the `rustix 1.1.5` build
-   regression. Keep the explicit patch-release check until that baseline issue
-   is resolved and reviewed.
+   The semver check uses `0.1.2` as its registry baseline and explicitly checks
+   a patch release even though this candidate is `1.0.0`. This is intentional:
+   1.0.0 stabilizes the 0.1.2 API and must not introduce a breaking public API
+   change.
 
 5. Validate the archive and the standard Cargo publish path without uploading:
 
@@ -112,14 +112,14 @@ the crate, creating and pushing the tag, and creating the GitHub release.
 
 After the platform settings and upload have been authorized:
 
-1. Confirm that `0.1.2` is absent from crates.io and that current `main` is the
+1. Confirm that `1.0.0` is absent from crates.io and that current `main` is the
    reviewed release commit.
-2. Create annotated tag `v0.1.2` at that commit and push only the tag. The tag
+2. Create annotated tag `v1.0.0` at that commit and push only the tag. The tag
    workflow rejects lightweight tags, version mismatches, tags that do not peel
    to the triggering commit, and commits that are not current `origin/main`.
 3. Review the tag workflow's commit and verification results, then reviewer
    `al8n` approves the `crates-io` environment deployment.
-4. Keep `main` at the tagged commit until crates.io reports `0.1.2` and its
+4. Keep `main` at the tagged commit until crates.io reports `1.0.0` and its
    checksum matches the verify job's recorded archive SHA-256. Download the
    short-lived verified-crate artifact before it expires if an independent
    local checksum is needed.
