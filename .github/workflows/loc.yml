@@ -1,25 +1,13 @@
-name: loc 
+name: loc
 
 on:
   push:
     branches:
       - main
-    paths-ignore:
-      - 'README.md'
-      - 'COPYRIGHT'
-      - 'LICENSE*'
-      - '**.md'
-      - '**.txt'
-      - 'art'
-  pull_request:
-    paths-ignore:
-      - 'README.md'
-      - 'COPYRIGHT'
-      - 'LICENSE*'
-      - '**.md'
-      - '**.txt'
-      - 'art'
   workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
   loc:
@@ -29,13 +17,11 @@ jobs:
 
       - name: Install Rust
         run: |
-          rustup update stable && rustup default stable
-          rustup component add clippy
-          rustup component add rustfmt
+          rustup update stable --no-self-update && rustup default stable
       
       - name: Install tokeit
         run: |
-          cargo install tokeit --force
+          cargo +stable install tokeit --version 0.1.3 --locked
       
       - name: Count total lines of code
         run: |

@@ -17,6 +17,21 @@ Probe if the host system supports IPv4, IPv6 and IPv4-mapped-IPv6.
 
 </div>
 
+`iprobe` runs its local socket probes once per process and returns the same
+cached snapshot from `probe()` and the convenience functions thereafter.
+
+The probes perform these operations:
+
+- IPv4: create an IPv4 TCP socket.
+- IPv6: create an IPv6 TCP socket and bind it to `::1`.
+- IPv4-mapped IPv6: create a dual-stack IPv6 TCP socket and bind it to
+  `::ffff:127.0.0.1`.
+
+These are local operation checks. They do not test routing, interface
+availability, remote hosts, or Internet connectivity. A `false` result is
+best effort and may reflect unsupported functionality, policy restrictions,
+resource exhaustion, or a transient failure.
+
 ## Installation
 
 ```toml
@@ -48,4 +63,3 @@ Copyright (c) 2025 Al Liu.
 [doc-url]: https://docs.rs/iprobe
 [crates-url]: https://crates.io/crates/iprobe
 [codecov-url]: https://app.codecov.io/gh/al8n/iprobe/
-
