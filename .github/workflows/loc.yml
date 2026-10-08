@@ -13,7 +13,7 @@ jobs:
   loc:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/checkout@v7
 
       - name: Install Rust
         run: |
@@ -27,7 +27,7 @@ jobs:
         run: |
           tokeit
       - name: Upload total loc to GitHub Gist
-        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b # v9
+        uses: actions/github-script@v9
         with:
           github-token: ${{ secrets.GIST_PAT }}
           script: |

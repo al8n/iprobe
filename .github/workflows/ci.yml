@@ -22,7 +22,7 @@ jobs:
     name: rustfmt
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/checkout@v7
       - name: Install stable Rust
         run: rustup update stable --no-self-update && rustup default stable
       - name: Check formatting
@@ -39,7 +39,7 @@ jobs:
           - windows-latest
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/checkout@v7
       - name: Install stable Rust
         run: rustup update stable --no-self-update && rustup default stable
       - name: Check
@@ -62,7 +62,7 @@ jobs:
           - windows-latest
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/checkout@v7
       - name: Install Rust 1.71.0
         run: rustup toolchain install 1.71.0 --profile minimal
       - name: Check
@@ -76,7 +76,7 @@ jobs:
     name: docs, package, and semver
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/checkout@v7
       - name: Install stable Rust
         run: rustup update stable --no-self-update && rustup default stable
       - name: Check rustdoc warnings
@@ -100,7 +100,7 @@ jobs:
       - msrv
       - docs-package-semver
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/checkout@v7
       - name: Install stable Rust and llvm-tools
         run: |
           rustup update stable --no-self-update && rustup default stable
@@ -108,4 +108,12 @@ jobs:
       - name: Install cargo-llvm-cov
         run: cargo +stable install cargo-llvm-cov --version 0.8.7 --locked
       - name: Check coverage threshold
-        run: cargo +stable llvm-cov --all-features --workspace --summary-only --fail-under-lines 90
+        run: cargo +stable llvm-cov --all-features --workspace --lcov --output-path lcov.info --fail-under-lines 90
+      - name: Upload to codecov.io
+        uses: codecov/codecov-action@v7
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          slug: ${{ github.repository }}
+          files: lcov.info
+          disable_search: true
+          fail_ci_if_error: true
