@@ -1,0 +1,241 @@
+name: Crates.io
+
+on:
+  push:
+    tags:
+      - 'v*'
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: crates-io-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+  PYTHONDONTWRITEBYTECODE: '1'
+  RUSTFLAGS: -Dwarnings
+
+jobs:
+  verify:
+    name: Verify crate release
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    outputs:
+      release_lock_sha256: ${{ steps.release_lock.outputs.sha256 }}
+      release_crate_sha256: ${{ steps.release_crate.outputs.sha256 }}
+      rust_toolchain: ${{ steps.release_toolchain.outputs.toolchain }}
+      rustc_version: ${{ steps.release_toolchain.outputs.rustc }}
+      cargo_version: ${{ steps.release_toolchain.outputs.cargo }}
+    steps:
+      - name: Check out the triggering revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Install stable Rust
+        run: rustup toolchain install stable --profile minimal
+      - name: Record release toolchain
+        id: release_toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          rustc_verbose="$(rustc +stable --version --verbose)"
+          mapfile -t releases < <(sed -n 's/^release: //p' <<< "$rustc_verbose")
+          mapfile -t hosts < <(sed -n 's/^host: //p' <<< "$rustc_verbose")
+          test "${#releases[@]}" -eq 1
+          test "${#hosts[@]}" -eq 1
+          release="${releases[0]}"
+          host="${hosts[0]}"
+          [[ "$release" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          test "$host" = "x86_64-unknown-linux-gnu"
+          rustc_version="$(rustc +stable --version)"
+          cargo_version="$(cargo +stable --version)"
+          [[ "$rustc_version" =~ ^rustc\ [0-9]+\.[0-9]+\.[0-9]+\ \([0-9a-f]+\ [0-9]{4}-[0-9]{2}-[0-9]{2}\)$ ]]
+          [[ "$cargo_version" =~ ^cargo\ [0-9]+\.[0-9]+\.[0-9]+\ \([0-9a-f]+\ [0-9]{4}-[0-9]{2}-[0-9]{2}\)$ ]]
+          [[ "$rustc_version" == "rustc $release ("* ]]
+          {
+            echo "toolchain=$release-$host"
+            echo "rustc=$rustc_version"
+            echo "cargo=$cargo_version"
+          } >> "$GITHUB_OUTPUT"
+      - name: Test release metadata gate
+        run: python3 -m unittest scripts/test_check_release_version.py
+      - name: Verify release metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
+            python3 scripts/check_release_version.py --tag "$GITHUB_REF_NAME"
+          else
+            python3 scripts/check_release_version.py
+          fi
+      - name: Bind a release tag to current main
+        if: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/') }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag_ref="refs/tags/$GITHUB_REF_NAME"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git cat-file -t "$tag_ref")" = "tag"
+          test "$(git rev-parse "${tag_ref}^{}")" = "$GITHUB_SHA"
+          git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
+          test "$(git rev-parse refs/remotes/origin/main)" = "$GITHUB_SHA"
+          test -z "$(git status --porcelain --untracked-files=all)"
+      - name: Confirm library lockfile policy
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -z "$(git ls-files -- Cargo.lock)"
+          test ! -e Cargo.lock
+      - name: Lock the release dependency resolution
+        run: cargo +stable generate-lockfile
+      - name: Run release tests
+        run: |
+          cargo +stable test --locked --all-features --all-targets
+          cargo +stable test --locked --all-features --doc
+      - name: Verify release package
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -z "$(git status --porcelain --untracked-files=all)"
+          cargo +stable package --locked --all-features
+          cargo +stable publish --locked --package iprobe --registry crates-io --all-features --dry-run
+      - name: Record release lock checksum
+        id: release_lock
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "sha256=$(sha256sum Cargo.lock | cut -d ' ' -f1)" >> "$GITHUB_OUTPUT"
+      - name: Preserve verified release lock
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: iprobe-release-lock-${{ github.sha }}
+          path: Cargo.lock
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
+          overwrite: true
+      - name: Record verified crate checksum
+        id: release_crate
+        shell: bash
+        run: |
+          set -euo pipefail
+          crate_files=(target/package/tmp-registry/iprobe-*.crate)
+          test "${#crate_files[@]}" -eq 1
+          test -f "${crate_files[0]}"
+          echo "sha256=$(sha256sum "${crate_files[0]}" | cut -d ' ' -f1)" >> "$GITHUB_OUTPUT"
+      - name: Preserve verified crate
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: iprobe-verified-crate-${{ github.sha }}
+          path: target/package/tmp-registry/iprobe-*.crate
+          if-no-files-found: error
+          retention-days: 3
+          compression-level: 0
+          overwrite: true
+
+  publish:
+    name: Publish crate
+    if: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') }}
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: crates-io
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Check out the release tag
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Restore verified release lock
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: iprobe-release-lock-${{ github.sha }}
+          path: .
+      - name: Install verified release toolchain
+        shell: bash
+        env:
+          EXPECTED_TOOLCHAIN: ${{ needs.verify.outputs.rust_toolchain }}
+          EXPECTED_RUSTC_VERSION: ${{ needs.verify.outputs.rustc_version }}
+          EXPECTED_CARGO_VERSION: ${{ needs.verify.outputs.cargo_version }}
+        run: |
+          set -euo pipefail
+          [[ "$EXPECTED_TOOLCHAIN" =~ ^[0-9]+\.[0-9]+\.[0-9]+-x86_64-unknown-linux-gnu$ ]]
+          [[ "$EXPECTED_RUSTC_VERSION" =~ ^rustc\ [0-9]+\.[0-9]+\.[0-9]+\ \([0-9a-f]+\ [0-9]{4}-[0-9]{2}-[0-9]{2}\)$ ]]
+          [[ "$EXPECTED_CARGO_VERSION" =~ ^cargo\ [0-9]+\.[0-9]+\.[0-9]+\ \([0-9a-f]+\ [0-9]{4}-[0-9]{2}-[0-9]{2}\)$ ]]
+          release="${EXPECTED_TOOLCHAIN%%-*}"
+          [[ "$EXPECTED_RUSTC_VERSION" == "rustc $release ("* ]]
+          rustup toolchain install "$EXPECTED_TOOLCHAIN" --profile minimal
+          test "$(rustc +"$EXPECTED_TOOLCHAIN" --version)" = "$EXPECTED_RUSTC_VERSION"
+          test "$(cargo +"$EXPECTED_TOOLCHAIN" --version)" = "$EXPECTED_CARGO_VERSION"
+      - name: Verify release identity and lock
+        shell: bash
+        env:
+          EXPECTED_LOCK_SHA256: ${{ needs.verify.outputs.release_lock_sha256 }}
+          EXPECTED_TOOLCHAIN: ${{ needs.verify.outputs.rust_toolchain }}
+          EXPECTED_RUSTC_VERSION: ${{ needs.verify.outputs.rustc_version }}
+          EXPECTED_CARGO_VERSION: ${{ needs.verify.outputs.cargo_version }}
+        run: |
+          set -euo pipefail
+          [[ "$EXPECTED_LOCK_SHA256" =~ ^[0-9a-f]{64}$ ]]
+          [[ "$EXPECTED_TOOLCHAIN" =~ ^[0-9]+\.[0-9]+\.[0-9]+-x86_64-unknown-linux-gnu$ ]]
+          [[ "$EXPECTED_RUSTC_VERSION" =~ ^rustc\ [0-9]+\.[0-9]+\.[0-9]+\ \([0-9a-f]+\ [0-9]{4}-[0-9]{2}-[0-9]{2}\)$ ]]
+          [[ "$EXPECTED_CARGO_VERSION" =~ ^cargo\ [0-9]+\.[0-9]+\.[0-9]+\ \([0-9a-f]+\ [0-9]{4}-[0-9]{2}-[0-9]{2}\)$ ]]
+          release="${EXPECTED_TOOLCHAIN%%-*}"
+          [[ "$EXPECTED_RUSTC_VERSION" == "rustc $release ("* ]]
+          test "$(rustc +"$EXPECTED_TOOLCHAIN" --version)" = "$EXPECTED_RUSTC_VERSION"
+          test "$(cargo +"$EXPECTED_TOOLCHAIN" --version)" = "$EXPECTED_CARGO_VERSION"
+          tag_ref="refs/tags/$GITHUB_REF_NAME"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git cat-file -t "$tag_ref")" = "tag"
+          test "$(git rev-parse "${tag_ref}^{}")" = "$GITHUB_SHA"
+          git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
+          test "$(git rev-parse refs/remotes/origin/main)" = "$GITHUB_SHA"
+          test -z "$(git ls-files -- Cargo.lock)"
+          test -f Cargo.lock
+          test "$(sha256sum Cargo.lock | cut -d ' ' -f1)" = "$EXPECTED_LOCK_SHA256"
+          test -z "$(git status --porcelain --untracked-files=all)"
+      - name: Authenticate with crates.io
+        id: crates-io-auth
+        uses: rust-lang/crates-io-auth-action@c6f97d42243bad5fab37ca0427f495c86d5b1a18 # v1.0.5
+      - name: Publish iprobe
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$EXPECTED_LOCK_SHA256" =~ ^[0-9a-f]{64}$ ]]
+          [[ "$EXPECTED_TOOLCHAIN" =~ ^[0-9]+\.[0-9]+\.[0-9]+-x86_64-unknown-linux-gnu$ ]]
+          [[ "$EXPECTED_RUSTC_VERSION" =~ ^rustc\ [0-9]+\.[0-9]+\.[0-9]+\ \([0-9a-f]+\ [0-9]{4}-[0-9]{2}-[0-9]{2}\)$ ]]
+          [[ "$EXPECTED_CARGO_VERSION" =~ ^cargo\ [0-9]+\.[0-9]+\.[0-9]+\ \([0-9a-f]+\ [0-9]{4}-[0-9]{2}-[0-9]{2}\)$ ]]
+          release="${EXPECTED_TOOLCHAIN%%-*}"
+          [[ "$EXPECTED_RUSTC_VERSION" == "rustc $release ("* ]]
+          test "$(rustc +"$EXPECTED_TOOLCHAIN" --version)" = "$EXPECTED_RUSTC_VERSION"
+          test "$(cargo +"$EXPECTED_TOOLCHAIN" --version)" = "$EXPECTED_CARGO_VERSION"
+          test "$(sha256sum Cargo.lock | cut -d ' ' -f1)" = "$EXPECTED_LOCK_SHA256"
+          test -z "$(git status --porcelain --untracked-files=all)"
+          cargo +"$EXPECTED_TOOLCHAIN" publish --locked --package iprobe --registry crates-io --all-features
+        env:
+          EXPECTED_LOCK_SHA256: ${{ needs.verify.outputs.release_lock_sha256 }}
+          EXPECTED_TOOLCHAIN: ${{ needs.verify.outputs.rust_toolchain }}
+          EXPECTED_RUSTC_VERSION: ${{ needs.verify.outputs.rustc_version }}
+          EXPECTED_CARGO_VERSION: ${{ needs.verify.outputs.cargo_version }}
+          CARGO_REGISTRY_TOKEN: ${{ steps.crates-io-auth.outputs.token }}
+      - name: Verify published crate checksum
+        shell: bash
+        env:
+          EXPECTED_CRATE_SHA256: ${{ needs.verify.outputs.release_crate_sha256 }}
+        run: |
+          set -euo pipefail
+          [[ "$EXPECTED_CRATE_SHA256" =~ ^[0-9a-f]{64}$ ]]
+          crate_files=(target/package/tmp-registry/iprobe-*.crate)
+          test "${#crate_files[@]}" -eq 1
+          test -f "${crate_files[0]}"
+          actual_sha256="$(sha256sum "${crate_files[0]}" | cut -d ' ' -f1)"
+          test "$actual_sha256" = "$EXPECTED_CRATE_SHA256"
+          echo "published crate SHA-256: $actual_sha256"
