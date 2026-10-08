@@ -1,5 +1,9 @@
 # Releases
 
+## Unreleased
+
+## Released
+
 ## 0.1.2 (October 8th, 2026)
 
 - Fix Windows Winsock startup and cleanup pairing so cleanup follows only a
