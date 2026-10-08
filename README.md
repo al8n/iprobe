@@ -36,7 +36,7 @@ resource exhaustion, or a transient failure.
 
 ```toml
 [dependencies]
-iprobe = "0.1"
+iprobe = "1"
 ```
 
 ## Example

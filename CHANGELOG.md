@@ -4,6 +4,13 @@
 
 ## Released
 
+## 1.0.0 (October 8th, 2026)
+
+- Stabilize the cached, best-effort local socket probe API.
+- Preserve the 0.1.2 API and runtime behavior, including the Rust 1.71 MSRV.
+- Set the canonical 1.x dependency requirement while remaining compatible with
+  0.1.2 consumers.
+
 ## 0.1.2 (October 8th, 2026)
 
 - Fix Windows Winsock startup and cleanup pairing so cleanup follows only a

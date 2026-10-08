@@ -1,6 +1,6 @@
 [package]
 name = "iprobe"
-version = "0.1.2"
+version = "1.0.0"
 edition = "2021"
 repository = "https://github.com/al8n/iprobe"
 homepage = "https://github.com/al8n/iprobe"
